@@ -1,0 +1,107 @@
+initialize() {
+	initializeMutationRate(1.5e-8*2.31/3.31*0.005);
+	initializeMutationType("m1", 0.0,"f", -1.0);
+	initializeGenomicElementType("g1", m1, 1.0);
+	
+	// set up 22 autosomes, each with gene_num # of genes
+	// set gene_num to result in 20,000-25,000 genes (Keightley 2012 doi: 10.1534/genetics.111.134668)
+	gene_num=1023; 
+	
+	gene_vec=rep(gene_num,22);
+	
+	
+	//assume gene length of 1340bp (Keightley 2012 doi: 10.1534/genetics.111.134668)
+	//resulting in total sequence length of 26.8-33.5 Mb
+	defineConstant("geneLength", 1340);
+	
+	defineConstant("seqLength", sum(gene_vec)*geneLength);
+	
+	gene_num=sum(gene_vec);
+	
+	for (i in 1:gene_num){
+		initializeGenomicElement(g1, ((i-1)*geneLength)+(i-1), (i*geneLength)+(i-2) );
+	}
+	
+	rates=NULL;
+	
+	//assume no recombination within genes, a rate of 1e-3 between genes, and free recombination between chroms
+	for (i in 1:(size(gene_vec)-1)){
+		rates=c(rates, 0, rep(c(1e-3, 0), asInteger(gene_vec[i-1]-1)), 0.5);
+	}
+	rates=c(rates, 0, rep(c(1e-3, 0), asInteger(gene_vec[size(gene_vec)-1]-1)));
+	
+	ends=NULL;
+	for (i in 1:gene_num){
+		ends=c(ends, (i*geneLength)+(i-2), (i*geneLength)+(i-1));
+	}
+	ends=ends[0:(size(ends)-2)];
+	
+	initializeRecombinationRate(rates, ends);
+}
+
+
+///
+/// Demography:
+/// parameters here taken from Jouganous et al. 2017 Genetics Table 2
+
+1 /* create p1 */ {
+	sim.addSubpop("p1", 11273);
+	cat("gen,popSize_AF,lethals_AF,popSize_EU,lethals_EU,popSize_AS,lethals_AS" + "\n");
+}
+
+
+//pop growth in AF for 6448 ((312000-125000)yrs/29yrs/gen) generations
+5000 /* end burn-in */ {
+	p1.setSubpopulationSize(23721);
+}
+
+
+// bottleneck for 2852 ((125000-42300)yrs/29yrs/gen) generations 
+11448 /* split p2 from p1 */ {
+	sim.addSubpopSplit("p2", 3104, p1);
+	p1.setMigrationRates(c(p2), c(15.8e-5));
+	p2.setMigrationRates(c(p1), c(15.8e-5));
+}
+
+14300 /* split p3 (Asian) from p2 (EUR) */ {
+	sim.addSubpopSplit("p3", 924, p2);
+	p2.setSubpopulationSize(2271);
+	
+	p1.setMigrationRates(c(p2, p3), c(1.1e-5, 0.48e-5));
+	p2.setMigrationRates(c(p1, p3), c(1.1e-5, 4.19e-5));
+	p3.setMigrationRates(c(p1, p2), c(0.48e-5, 4.19e-5));
+}
+
+//split followed by exponential growth for 1459 (42300yrs/29yrs/gen) generations
+14300:15759 /* exponential growth */ {
+	t = sim.generation - 14300;
+	p2_size = round(2271 * (1 + 0.00196)^t);
+	p3_size = round(924 * (1 + 0.00309)^t);
+	
+	p2.setSubpopulationSize(asInteger(p2_size));
+	p3.setSubpopulationSize(asInteger(p3_size));
+}
+
+
+1:14300 late() {
+	if (sim.generation % 20 == 0) {
+		lethals_AF = mean(p1.individuals.genomes.countOfMutationsOfType(m1))*2;
+		cat(sim.generation + "," + p1.individuals.size() + "," + lethals_AF + ",NA,NA,NA,NA"+ "\n");
+	
+	}
+
+}
+
+14301:15759 late() {
+	if (sim.generation % 20 == 0 | sim.generation==15759) {
+	
+		lethals_AF = mean(p1.individuals.genomes.countOfMutationsOfType(m1))*2;
+		lethals_EU = mean(p2.individuals.genomes.countOfMutationsOfType(m1))*2;
+		lethals_AS = mean(p3.individuals.genomes.countOfMutationsOfType(m1))*2;
+
+		
+		cat(sim.generation + "," + p1.individuals.size() + "," + lethals_AF + "," + p2.individuals.size() + "," + lethals_EU + "," + p3.individuals.size() + "," + lethals_AS +"\n");
+	
+	}
+
+}
